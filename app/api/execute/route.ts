@@ -101,7 +101,6 @@ async function executeWorkflow(
 
             const duration = Date.now() - nodeStart;
 
-            // FIXED: Convert inputs and outputs to Prisma-compatible JSON
             await db.nodeRun.updateMany({
               where: { workflowRunId: runId, nodeId },
               data: { 
@@ -119,7 +118,6 @@ async function executeWorkflow(
 
             console.error(`Node ${nodeId} execution failed:`, errorMsg);
 
-            // FIXED: Added outputs field for failed runs
             await db.nodeRun.updateMany({
               where: { workflowRunId: runId, nodeId },
               data: { 
@@ -200,7 +198,7 @@ async function executeNode(
         if (handle.ok) {
           return { output: (handle.output as { output: string }).output };
         }
-        throw new Error(handle.error?.message || "LLM task failed");
+        throw new Error((handle.error as any)?.message || "LLM task failed");
       } catch (error) {
         console.error("LLM execution error:", error);
         throw error;
@@ -230,7 +228,7 @@ async function executeNode(
         if (handle.ok) {
           return { output: (handle.output as { output: string }).output };
         }
-        throw new Error(handle.error?.message || "Crop image task failed");
+        throw new Error((handle.error as any)?.message || "Crop image task failed");
       } catch (error) {
         console.error("Crop image execution error:", error);
         throw error;
@@ -254,7 +252,7 @@ async function executeNode(
         if (handle.ok) {
           return { output: (handle.output as { output: string }).output };
         }
-        throw new Error(handle.error?.message || "Extract frame task failed");
+        throw new Error((handle.error as any)?.message || "Extract frame task failed");
       } catch (error) {
         console.error("Frame extraction error:", error);
         throw error;
