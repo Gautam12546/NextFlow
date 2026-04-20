@@ -260,7 +260,8 @@ async function executeNode(
     }
 
     default: {
-      console.warn(`Unknown node type: ${node.type}`);
+      // FIXED: Removed node.type that was causing the error
+      console.warn("Unknown node type");
       return {};
     }
   }
