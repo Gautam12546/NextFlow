@@ -192,6 +192,22 @@ Text (product details) ─┘
                                    ↓ (both branches)
                               LLM #2 → Final tweet/post
 ```
+## 🚢 Deployment (Vercel)
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel --prod
+```
+
+Set all environment variables in the Vercel dashboard under **Settings → Environment Variables**.
+
+For Trigger.dev in production:
+```bash
+npx trigger.dev@latest deploy
+```
 
 ---
 
