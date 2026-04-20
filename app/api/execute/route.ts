@@ -42,11 +42,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Execute in background (non-blocking response)
-    executeWorkflow(nodes, edges, run.id, userId).catch(console.error);
+    executeWorkflow(nodes, edges, run.id, userId).catch((error) => {
+      console.error("Background workflow execution failed:", error);
+    });
 
     return NextResponse.json({ runId: run.id });
   } catch (err) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
+    if (err instanceof z.ZodError) {
+      console.error("Validation error:", err.errors);
+      return NextResponse.json({ error: err.errors }, { status: 400 });
+    }
+    console.error("Error in execute endpoint:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -73,7 +79,7 @@ async function executeWorkflow(
 
           const nodeStart = Date.now();
 
-          // Update node run status to running
+          // Create node run record
           await db.nodeRun.create({
             data: {
               workflowRunId: runId,
@@ -95,9 +101,15 @@ async function executeWorkflow(
 
             const duration = Date.now() - nodeStart;
 
+            // FIXED: Convert inputs and outputs to Prisma-compatible JSON
             await db.nodeRun.updateMany({
               where: { workflowRunId: runId, nodeId },
-              data: { status: "success", inputs, outputs: output, duration },
+              data: { 
+                status: "success", 
+                inputs: JSON.parse(JSON.stringify(inputs)),
+                outputs: JSON.parse(JSON.stringify(output)), 
+                duration 
+              },
             });
 
             return { nodeId, status: "success" as const, outputs: output, duration };
@@ -105,9 +117,17 @@ async function executeWorkflow(
             const duration = Date.now() - nodeStart;
             const errorMsg = err instanceof Error ? err.message : "Unknown error";
 
+            console.error(`Node ${nodeId} execution failed:`, errorMsg);
+
+            // FIXED: Added outputs field for failed runs
             await db.nodeRun.updateMany({
               where: { workflowRunId: runId, nodeId },
-              data: { status: "failed", error: errorMsg, duration },
+              data: { 
+                status: "failed", 
+                error: errorMsg, 
+                duration,
+                outputs: {} 
+              },
             });
 
             return { nodeId, status: "failed" as const, outputs: {}, error: errorMsg, duration };
@@ -125,7 +145,12 @@ async function executeWorkflow(
       where: { id: runId },
       data: { status: finalStatus, duration: totalDuration },
     });
+
+    console.log(`Workflow ${runId} completed with status: ${finalStatus}`);
   } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : "Unknown error";
+    console.error(`Workflow ${runId} execution failed:`, errorMsg);
+    
     await db.workflowRun.update({
       where: { id: runId },
       data: { status: "failed", duration: Date.now() - startTime },
@@ -157,44 +182,88 @@ async function executeNode(
     }
 
     case "llmNode": {
-      const llmData = data as { model: string; systemPrompt?: string; userMessage?: string };
-      const handle = await tasks.triggerAndWait("run-llm-node", {
-        model: llmData.model || "gemini-1.5-flash",
-        systemPrompt: (inputs["system_prompt"] as string) || llmData.systemPrompt,
-        userMessage: (inputs["user_message"] as string) || llmData.userMessage || "",
-        images: (inputs["images"] as string[]) || [],
-      });
-      if (handle.ok) return { output: (handle.output as { output: string }).output };
-      throw new Error("LLM task failed");
+      try {
+        const llmData = data as { model: string; systemPrompt?: string; userMessage?: string };
+        const userMessage = (inputs["user_message"] as string) || llmData.userMessage || "";
+        
+        if (!userMessage.trim()) {
+          throw new Error("User message is required for LLM node");
+        }
+
+        const handle = await tasks.triggerAndWait("run-llm-node", {
+          model: llmData.model || "gemini-1.5-flash",
+          systemPrompt: (inputs["system_prompt"] as string) || llmData.systemPrompt,
+          userMessage: userMessage,
+          images: (inputs["images"] as string[]) || [],
+        });
+        
+        if (handle.ok) {
+          return { output: (handle.output as { output: string }).output };
+        }
+        throw new Error(handle.error?.message || "LLM task failed");
+      } catch (error) {
+        console.error("LLM execution error:", error);
+        throw error;
+      }
     }
 
     case "cropImageNode": {
-      const cropData = data as {
-        imageUrl?: string; xPercent: number; yPercent: number;
-        widthPercent: number; heightPercent: number;
-      };
-      const handle = await tasks.triggerAndWait("crop-image-node", {
-        imageUrl: (inputs["image_url"] as string) || cropData.imageUrl || "",
-        xPercent: cropData.xPercent,
-        yPercent: cropData.yPercent,
-        widthPercent: cropData.widthPercent,
-        heightPercent: cropData.heightPercent,
-      });
-      if (handle.ok) return { output: (handle.output as { output: string }).output };
-      throw new Error("Crop image task failed");
+      try {
+        const cropData = data as {
+          imageUrl?: string; xPercent: number; yPercent: number;
+          widthPercent: number; heightPercent: number;
+        };
+        const imageUrl = (inputs["image_url"] as string) || cropData.imageUrl || "";
+        
+        if (!imageUrl.trim()) {
+          throw new Error("Image URL is required for crop operation");
+        }
+
+        const handle = await tasks.triggerAndWait("crop-image-node", {
+          imageUrl: imageUrl,
+          xPercent: cropData.xPercent,
+          yPercent: cropData.yPercent,
+          widthPercent: cropData.widthPercent,
+          heightPercent: cropData.heightPercent,
+        });
+        
+        if (handle.ok) {
+          return { output: (handle.output as { output: string }).output };
+        }
+        throw new Error(handle.error?.message || "Crop image task failed");
+      } catch (error) {
+        console.error("Crop image execution error:", error);
+        throw error;
+      }
     }
 
     case "extractFrameNode": {
-      const frameData = data as { videoUrl?: string; timestamp: string };
-      const handle = await tasks.triggerAndWait("extract-frame-node", {
-        videoUrl: (inputs["video_url"] as string) || frameData.videoUrl || "",
-        timestamp: frameData.timestamp || "0",
-      });
-      if (handle.ok) return { output: (handle.output as { output: string }).output };
-      throw new Error("Extract frame task failed");
+      try {
+        const frameData = data as { videoUrl?: string; timestamp: string };
+        const videoUrl = (inputs["video_url"] as string) || frameData.videoUrl || "";
+        
+        if (!videoUrl.trim()) {
+          throw new Error("Video URL is required for frame extraction");
+        }
+
+        const handle = await tasks.triggerAndWait("extract-frame-node", {
+          videoUrl: videoUrl,
+          timestamp: frameData.timestamp || "0",
+        });
+        
+        if (handle.ok) {
+          return { output: (handle.output as { output: string }).output };
+        }
+        throw new Error(handle.error?.message || "Extract frame task failed");
+      } catch (error) {
+        console.error("Frame extraction error:", error);
+        throw error;
+      }
     }
 
-    default:
+    default: {
+      console.warn(`Unknown node type: ${node.type}`);
       return {};
+    }
   }
 }
