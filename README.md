@@ -25,7 +25,7 @@ A pixel-perfect Krea.ai clone for building visual AI workflows powered by Google
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/your-username/nextflow
+git clone https: https://github.com/Gautam12546/NextFlow
 cd nextflow
 npm install
 ```
@@ -191,25 +191,6 @@ Text (system prompt)    LLM #1 ←──────┘
 Text (product details) ─┘
                                    ↓ (both branches)
                               LLM #2 → Final tweet/post
-```
-
----
-
-## 🚢 Deployment (Vercel)
-
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel --prod
-```
-
-Set all environment variables in the Vercel dashboard under **Settings → Environment Variables**.
-
-For Trigger.dev in production:
-```bash
-npx trigger.dev@latest deploy
 ```
 
 ---
